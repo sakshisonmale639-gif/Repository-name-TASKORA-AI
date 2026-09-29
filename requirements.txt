@@ -1,0 +1,9 @@
+streamlit
+python-dotenv
+torch
+diffusers
+transformers
+accelerate
+safetensors
+Pillow
+huggingface_hub
