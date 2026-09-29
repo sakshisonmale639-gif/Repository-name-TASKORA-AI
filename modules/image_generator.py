@@ -1,62 +1,184 @@
 import os
-import torch
-from diffusers import StableDiffusionPipeline
+from pathlib import Path
+from datetime import datetime
+
+import streamlit as st
+from google import genai
+from google.genai import types
 
 
-MODEL_ID = "runwayml/stable-diffusion-v1-5"
+# ============================================================
+# TASKORA AI - CLOUD IMAGE GENERATOR
+# ============================================================
+# Uses Gemini Image Generation API
+# Works with:
+#   - Local development
+#   - Streamlit Community Cloud
+#
+# IMPORTANT:
+# API key is NOT stored in this file.
+# Streamlit Cloud uses st.secrets["GEMINI_API_KEY"]
+# Local development can use the GEMINI_API_KEY environment variable.
+# ============================================================
 
-_pipe = None
+
+MODEL_NAME = "gemini-2.5-flash-image"
 
 
-def get_pipeline():
-    global _pipe
+# ------------------------------------------------------------
+# GET API KEY
+# ------------------------------------------------------------
 
-    if _pipe is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+def get_api_key():
+    """
+    Get Gemini API key.
 
-        dtype = (
-            torch.float16
-            if device == "cuda"
-            else torch.float32
+    Priority:
+    1. Streamlit Secrets
+    2. Environment variable
+    """
+
+    # Streamlit Cloud
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            key = st.secrets["GEMINI_API_KEY"]
+
+            if key:
+                return key.strip()
+    except Exception:
+        pass
+
+    # Local environment
+    key = os.getenv("GEMINI_API_KEY")
+
+    if key:
+        return key.strip()
+
+    return None
+
+
+# ------------------------------------------------------------
+# CREATE GEMINI CLIENT
+# ------------------------------------------------------------
+
+def get_client():
+    """
+    Create Gemini API client.
+    """
+
+    api_key = get_api_key()
+
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not configured. "
+            "Add it to Streamlit Secrets or your environment variables."
         )
 
-        _pipe = StableDiffusionPipeline.from_pretrained(
-            MODEL_ID,
-            torch_dtype=dtype,
-        )
+    return genai.Client(api_key=api_key)
 
-        _pipe = _pipe.to(device)
 
-    return _pipe
-
+# ------------------------------------------------------------
+# GENERATE IMAGE
+# ------------------------------------------------------------
 
 def generate_image(prompt):
+    """
+    Generate an image from a text prompt.
+
+    Returns:
+        str: Path of generated image
+    """
+
     if not prompt or not prompt.strip():
-        raise ValueError("Image prompt cannot be empty.")
+        raise ValueError("Please enter an image description.")
 
-    pipe = get_pipeline()
+    prompt = prompt.strip()
 
-    image = pipe(
-        prompt=prompt,
-        num_inference_steps=20,
-        guidance_scale=7.5,
-    ).images[0]
+    client = get_client()
 
-    output_dir = os.path.join(
-        "generated",
-        "images",
+    # Create output directory
+    base_dir = Path(__file__).resolve().parent.parent
+    generated_dir = base_dir / "generated" / "images"
+
+    generated_dir.mkdir(
+        parents=True,
+        exist_ok=True
     )
 
-    os.makedirs(
-        output_dir,
-        exist_ok=True,
+    # Generate image
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE"]
+        )
     )
 
-    output_path = os.path.join(
-        output_dir,
-        "taskora_image.png",
+    # Look for generated image
+    image_data = None
+
+    for part in response.parts:
+
+        if getattr(part, "inline_data", None) is not None:
+
+            image_data = part.inline_data.data
+
+            break
+
+    if image_data is None:
+        raise RuntimeError(
+            "Gemini did not return an image. "
+            "Please try a different prompt."
+        )
+
+    # Create unique filename
+    timestamp = datetime.now().strftime(
+        "%Y%m%d_%H%M%S"
     )
 
-    image.save(output_path)
+    image_path = (
+        generated_dir /
+        f"taskora_image_{timestamp}.png"
+    )
 
-    return output_path
+    # Save image
+    with open(image_path, "wb") as file:
+        file.write(image_data)
+
+    return str(image_path)
+
+
+# ------------------------------------------------------------
+# TEST FUNCTION
+# ------------------------------------------------------------
+
+if __name__ == "__main__":
+
+    print("=" * 50)
+    print("TASKORA AI - IMAGE GENERATOR TEST")
+    print("=" * 50)
+
+    test_prompt = (
+        "A futuristic AI assistant helping a student "
+        "organize tasks in a modern digital workspace, "
+        "purple and blue neon lighting, cinematic, "
+        "highly detailed"
+    )
+
+    try:
+
+        result = generate_image(test_prompt)
+
+        print()
+        print("SUCCESS!")
+        print()
+        print("Image created:")
+        print(result)
+
+    except Exception as error:
+
+        print()
+        print("IMAGE GENERATION FAILED")
+        print()
+        print("Error:")
+        print(error)
