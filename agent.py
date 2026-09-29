@@ -1,26 +1,35 @@
 import os
 import streamlit as st
-import google.generativeai as genai
+from google import genai
+
 
 @st.cache_resource
-def get_agent_model():
+def get_agent_client():
+
     api_key = os.getenv("GEMINI_API_KEY")
+
     if not api_key:
-        raise ValueError("GEMINI_API_KEY not found in environment secrets.")
-    
-    genai.configure(api_key=api_key)
-    # Use gemini-1.5-flash for significantly faster responses and lower memory footprint
-    return genai.GenerativeModel("gemini-1.5-flash")
+        raise ValueError(
+            "GEMINI_API_KEY not found in Streamlit secrets."
+        )
+
+    return genai.Client(api_key=api_key)
+
 
 def run_agent(prompt: str) -> str:
-    model = get_agent_model()
-    
-    # Stream the output or generate directly
-    response = model.generate_content(
-        prompt,
-        generation_config={
+
+    client = get_agent_client()
+
+    response = client.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=prompt,
+        config={
             "temperature": 0.7,
-            "max_output_tokens": 1000,  # Cap response length to avoid timeouts
-        }
+            "max_output_tokens": 1000,
+        },
     )
+
+    if not response.text:
+        return "TASKORA did not receive a response from Gemini."
+
     return response.text
