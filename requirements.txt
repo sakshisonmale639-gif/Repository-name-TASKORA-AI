@@ -4,5 +4,6 @@ google-generativeai
 python-dotenv
 Pillow
 python-pptx
+python-docx
 reportlab
 PyPDF2
